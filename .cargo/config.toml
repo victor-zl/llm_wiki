@@ -1,0 +1,11 @@
+# 使用清华 sparse 镜像加速 crates.io，避免在国内网络下更新 index 超时。
+# 若在境外开发且更想用官方源：可暂时移除此文件，或自行改为 rsproxy / ustc 等镜像。
+
+[source.crates-io]
+replace-with = "tuna"
+
+[source.tuna]
+registry = "sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/"
+
+[net]
+retry = 5

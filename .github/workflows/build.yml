@@ -22,7 +22,7 @@ jobs:
             args: ''
             rust_target: ''
           - platform: windows-latest
-            args: ''
+            args: '-b msi'
             rust_target: ''
 
     runs-on: ${{ matrix.platform }}

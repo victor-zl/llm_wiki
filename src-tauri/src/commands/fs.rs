@@ -109,12 +109,31 @@ fn write_cache(original: &Path, text: &str) -> Result<(), String> {
     fs::write(&cache_path, text)
         .map_err(|e| format!("Failed to write cache: {}", e))
 }
-
 fn extract_pdf_text(path: &str) -> Result<String, String> {
     let bytes =
         fs::read(path).map_err(|e| format!("Failed to read PDF '{}': {}", path, e))?;
-    pdf_extract::extract_text_from_mem(&bytes)
-        .map_err(|e| format!("Failed to extract text from PDF '{}': {}", path, e))
+    let path_owned = path.to_string();
+    match std::thread::spawn(move || {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            pdf_extract::extract_text_from_mem(&bytes)
+        }))
+    })
+    .join()
+    {
+        Err(_) => Err(format!(
+            "PDF extraction panicked for '{}'. Unsupported encoding (e.g. GBK-EUC-H) or corrupt file; try re-saving or OCR.",
+            path_owned
+        )),
+        Ok(Ok(Ok(text))) => Ok(text),
+        Ok(Ok(Err(e))) => Err(format!(
+            "Failed to extract text from PDF '{}': {}",
+            path_owned, e
+        )),
+        Ok(Err(_)) => Err(format!(
+            "PDF text extraction failed for '{}'. Some PDFs use encodings this engine does not handle; try re-saving or OCR.",
+            path_owned
+        )),
+    }
 }
 
 /// Extract text from Office Open XML formats, converting to Markdown.
@@ -732,8 +751,7 @@ pub fn copy_file(source: String, destination: String) -> Result<(), String> {
 
 /// Recursively copy a directory, preserving structure.
 /// Returns list of copied file paths (destination paths).
-#[tauri::command]
-pub fn copy_directory(source: String, destination: String) -> Result<Vec<String>, String> {
+fn copy_directory_sync(source: String, destination: String) -> Result<Vec<String>, String> {
     let src = Path::new(&source);
     let dest = Path::new(&destination);
 
@@ -779,6 +797,13 @@ pub fn copy_directory(source: String, destination: String) -> Result<Vec<String>
 
     copy_recursive(src, dest, &mut copied_files)?;
     Ok(copied_files)
+}
+
+#[tauri::command]
+pub async fn copy_directory(source: String, destination: String) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || copy_directory_sync(source, destination))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

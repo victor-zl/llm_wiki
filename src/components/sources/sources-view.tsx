@@ -12,6 +12,28 @@ import { enqueueIngest, enqueueBatch } from "@/lib/ingest-queue"
 import { useTranslation } from "react-i18next"
 import { normalizePath, getFileName } from "@/lib/path-utils"
 
+
+function startPreprocessInBackground(paths: string[], concurrency: number): void {
+  if (paths.length === 0) return
+  const queue = [...paths]
+  const workers = Math.max(1, Math.min(concurrency, queue.length))
+  void (async () => {
+    const runWorker = async () => {
+      while (queue.length > 0) {
+        const p = queue.shift()
+        if (p === undefined) break
+        try {
+          await preprocessFile(p)
+        } catch {
+          // ignore preprocessing errors
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: workers }, () => runWorker()))
+  })()
+}
+
+
 export function SourcesView() {
   const { t } = useTranslation()
   const project = useWikiStore((s) => s.project)
@@ -95,13 +117,12 @@ export function SourcesView() {
       try {
         await copyFile(sourcePath, destPath)
         importedPaths.push(destPath)
-        // Pre-process file (extract text from PDF, etc.) for instant preview later
-        preprocessFile(destPath).catch(() => {})
       } catch (err) {
         console.error(`Failed to import ${originalName}:`, err)
       }
     }
 
+    startPreprocessInBackground(importedPaths, 2)
     setImporting(false)
     await loadSources()
 
@@ -139,10 +160,7 @@ export function SourcesView() {
 
       console.log(`[Folder Import] Copied ${copiedFiles.length} files from ${folderName}`)
 
-      // Preprocess all files
-      for (const filePath of copiedFiles) {
-        preprocessFile(filePath).catch(() => {})
-      }
+      startPreprocessInBackground(copiedFiles, 2)
 
       setImporting(false)
       await loadSources()
